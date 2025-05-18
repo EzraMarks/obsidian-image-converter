@@ -240,6 +240,8 @@ export default class ImageConverterPlugin extends Plugin {
                                 new ProcessSingleImageModal(this.app, this, file).open();
                             });
                     });
+
+                    this.contextMenu?.addOpenInGooglePhotosMenuItem(menu, file);
                 } else if (file instanceof TFolder) {
                     menu.addItem((item) => {
                         item.setTitle("Process all images in Folder")
@@ -448,11 +450,11 @@ export default class ImageConverterPlugin extends Plugin {
                 const cursor = editor.getCursor();
 
                 // Extract Clipboard Item Information
-                const itemData: { kind: string, type: string, file: File | null }[] = [];
+                const itemData: { kind: string, type: string, file: File | null, name: string | undefined }[] = [];
                 for (let i = 0; i < evt.clipboardData.items.length; i++) {
                     const item = evt.clipboardData.items[i];
                     const file = item.kind === "file" ? item.getAsFile() : null;
-                    itemData.push({ kind: item.kind, type: item.type, file: file });
+                    itemData.push({ kind: item.kind, type: item.type, file: file, name: item.webkitGetAsEntry()?.name });
                 }
 
                 // Check if we should process these items
@@ -479,8 +481,7 @@ export default class ImageConverterPlugin extends Plugin {
             .filter(data => {
                 // console.log(`Dropped file: ${data.name}, file.type: ${data.type}`);
                 return this.supportedImageFormats.isSupported(data.type, data.name)
-            })
-            .map(data => data.file);
+            });
 
         // Step 2: Check for Active File
         // - Return early if no supported files are found or if there's no active file in the Obsidian workspace.
@@ -495,7 +496,8 @@ export default class ImageConverterPlugin extends Plugin {
         // Step 3: Map Files to Processing Promises
         // - Create an array of promises, each responsible for processing one file.
         // - This allows for sequential processing, avoiding concurrency issues.
-        const filePromises = supportedFiles.map(async (file) => {
+        const filePromises = supportedFiles.map(async (fileData) => {
+            const file = fileData.file;
             try {
                 // Check modal behavior setting
                 const modalBehavior = this.settings.modalBehavior;
@@ -688,6 +690,7 @@ export default class ImageConverterPlugin extends Plugin {
                         try {
                             const originalSize = file.size;  // Store original size
                             this.processedImage = await this.imageProcessor.processImage(
+                                fileData.name,
                                 file,
                                 selectedConversionPreset
                                     ? selectedConversionPreset.outputFormat
@@ -788,14 +791,13 @@ export default class ImageConverterPlugin extends Plugin {
         }
     }
 
-    private async handlePaste(itemData: { kind: string; type: string; file: File | null }[], editor: Editor, cursor: EditorPosition) {
+    private async handlePaste(itemData: { kind: string; type: string; file: File | null, name: string | undefined }[], editor: Editor, cursor: EditorPosition) {
         // Step 1: Filter Supported Image Files
         // - Filter the pasted `itemData` to keep only supported image files.
         const supportedFiles = itemData
             .filter(data => data.kind === "file" && data.file &&
                 this.supportedImageFormats.isSupported(data.type, data.file.name))
-            .map(data => data.file!)
-            .filter((file): file is File => file !== null);
+            .filter((data) => data.file !== null);
 
         // Step 2: Check for Active File
         // - Return early if no supported files are found or if there's no active file.
@@ -809,7 +811,8 @@ export default class ImageConverterPlugin extends Plugin {
 
         // Step 3: Map Files to Processing Promises
         // - Create an array of promises, each responsible for processing one pasted file.
-        const filePromises = supportedFiles.map(async (file) => {
+        const filePromises = supportedFiles.map(async (itemData) => {
+            const file = itemData.file!; // Non-null assertion since we filtered for null files
             // Check modal behavior setting
             const modalBehavior = this.settings.modalBehavior;
             let showModal = modalBehavior === "always";
@@ -1001,6 +1004,7 @@ export default class ImageConverterPlugin extends Plugin {
                         try {
                             const originalSize = file.size;
                             this.processedImage = await this.imageProcessor.processImage(
+                                itemData.name,
                                 file,
                                 selectedConversionPreset
                                     ? selectedConversionPreset.outputFormat

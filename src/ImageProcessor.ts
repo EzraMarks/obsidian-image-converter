@@ -47,6 +47,7 @@ export class ImageProcessor {
      * @returns A Promise that resolves to the processed image as an ArrayBuffer.
      */
     async processImage(
+        fileName: string | undefined,
         file: Blob,
         format: 'WEBP' | 'JPEG' | 'PNG' | 'ORIGINAL' | 'NONE' | 'PNGQUANT' | 'AVIF',
         quality: number,
@@ -83,6 +84,42 @@ export class ImageProcessor {
             // Remove rotation property (Orientation tag in 0th IFD, tag 274)
             if (metadata && metadata["0th"] && metadata["0th"][piexif.ImageIFD.Orientation]) {
                 delete metadata["0th"][piexif.ImageIFD.Orientation];
+            }
+            
+            // Add metadata encoding the original file name of this image, which is useful for
+            // later identifying this image in a system like Google Photos.
+            const hasOriginalMetadata = metadata?.Exif?.[piexif.ExifIFD.DateTimeOriginal]; // proxy for whether the file has its original metadata
+            if (hasOriginalMetadata && fileName) {
+                // piexif.ExifIFD.UserComment is the tag for UserComment (37510)
+                const userCommentTag = piexif.ExifIFD.UserComment;
+                const exif = metadata?.["Exif"] ?? {};
+
+                // Get existing UserComment (may be undefined)
+                const existingComment = exif[userCommentTag];
+
+                // Decode UserComment if it exists and starts with ASCII prefix
+                let commentText = "";
+                if (typeof existingComment === "string" && existingComment.startsWith("ASCII\0\0\0")) {
+                    commentText = existingComment.substring(8); // Remove prefix
+                } else if (typeof existingComment === "string") {
+                    commentText = existingComment;
+                }
+
+                // Check if any line starts with "OriginalFilename"
+                const hasOriginalFilename = commentText
+                    .split(/\r?\n/)
+                    .some(line => line.trim().startsWith("OriginalFilename"));
+
+                if (!hasOriginalFilename) {
+                    // Add new line with "OriginalFilename: filename"
+                    commentText = commentText
+                        ? commentText + "\nOriginalFilename: " + fileName
+                        : "OriginalFilename: " + fileName;
+                    // Per EXIF spec, UserComment should start with a charset prefix (here: ASCII)
+                    const prefix = "ASCII\0\0\0";
+                    exif[userCommentTag] = prefix + commentText;
+                    metadata["Exif"] = exif;
+                }
             }
 
             const stringifiedMetadata = metadata && Object.keys(metadata).length > 0 ? piexif.dump(metadata) : "";

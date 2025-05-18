@@ -388,6 +388,7 @@ export class ProcessSingleImageModal extends Modal {
             // No need to get conversionPreset here; preview uses modalSettings
 
             const processedImageBuffer = await this.plugin.imageProcessor.processImage(
+                this.imageFile.name,
                 imageBlob,
                 this.modalSettings.outputFormat,
                 this.modalSettings.quality / 100,
@@ -497,6 +498,7 @@ export class ProcessSingleImageModal extends Modal {
                     preset => preset.outputFormat === "AVIF"
                 );
                 processedImageBuffer = await this.plugin.imageProcessor.processImage(
+                    this.imageFile.name,
                     imageFile,
                     this.modalSettings.outputFormat,
                     this.modalSettings.outputFormat === "AVIF" ? 100 : this.modalSettings.quality / 100, // Pass 100 for quality, it is ignored,

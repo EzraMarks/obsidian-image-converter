@@ -113,6 +113,7 @@ export class BatchImageProcessor {
                 const imageBlob = new Blob([imageData], { type: `image/${linkedFile.extension}` });
 
                 const processedImageData = await this.imageProcessor.processImage(
+                    linkedFile.name,
                     imageBlob,
                     outputFormat,
                     quality,
@@ -265,6 +266,7 @@ export class BatchImageProcessor {
                 const imageBlob = new Blob([imageData], { type: `image/${image.extension}` });
 
                 const processedImageData = await this.imageProcessor.processImage(
+                    image.name,
                     imageBlob,
                     outputFormat,
                     quality,
@@ -415,6 +417,7 @@ export class BatchImageProcessor {
 
                 const processedImageData =
                     await this.imageProcessor.processImage(
+                        image.name,
                         imageBlob,
                         outputFormat,
                         quality,

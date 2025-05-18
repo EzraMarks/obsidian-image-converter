@@ -20,6 +20,7 @@ import { VariableProcessor, VariableContext } from './VariableProcessor';
 import { ImageAnnotationModal } from './ImageAnnotation';
 import { Crop } from './Crop';
 import { ProcessSingleImageModal } from "./ProcessSingleImageModal";
+import piexif from "piexifjs";
 
 interface ImageMatch {
 	lineNumber: number;
@@ -170,8 +171,13 @@ export class ContextMenu extends Component {
 			this.addShowInNavigationMenuItem(menu, img)
 			this.addShowInSystemExplorerMenuItem(menu, img)
 		}
+		
+		const imagePath = this.folderAndFilenameManagement.getImagePath(img);
+		const file = imagePath && this.app.vault.getAbstractFileByPath(imagePath);
 
-
+		if (file instanceof TFile) {
+			this.addOpenInGooglePhotosMenuItem(menu, file);
+		}
 
 		menu.addSeparator();
 		this.addDeleteImageAndLinkMenuItem(menu, event);
@@ -1572,6 +1578,85 @@ export class ContextMenu extends Component {
 			new Notice('Failed to show in system explorer');
 			console.error(error);
 		}
+	}
+
+	/*-----------------------------------------------------------------*/
+	/*                      SHOW IN GOOGLE PHOTOS                      */
+	/*-----------------------------------------------------------------*/
+
+	/**
+	 * Adds the "Open in Google Photos"" menu item.
+	 * @param menu - The Menu object to add the item to.
+	 * @param img - The HTMLImageElement whose file needs to be shown.
+	 */
+	addOpenInGooglePhotosMenuItem(menu: Menu, file: TFile) {
+		let menuItem: MenuItem;
+		menu.addItem((item) => {
+			menuItem = item
+				.setTitle('Open in Google Photos')
+				.setIcon('external-link')
+				.setDisabled(true) // Start disabled by default
+				.onClick(async () => {
+					await this.openInGooglePhotos(file);
+				});
+		});
+
+		this.extractExifDateAndFilename(file)
+			.then(metadata => {
+				// Enable the menu item if there is metadata that allows for searching in Google Photos
+				if (metadata.dateTaken) {
+					menuItem.setDisabled(false);
+				}
+			})
+	}
+
+	/**
+	 * Opens Google Photos to a search for the image that corresponds to this file,
+	 *   based on the EXIF date and original filename.
+	 * @param file - The TFile whose file needs to be searched.
+	 */
+	async openInGooglePhotos(file: TFile) {
+		const { dateTaken, originalFileName } = await this.extractExifDateAndFilename(file);
+		const searchQuery = originalFileName ? `"${originalFileName}" ${dateTaken}` : dateTaken;
+		window.open(`https://photos.google.com/search/${encodeURIComponent(searchQuery)}`, '_blank');
+	}
+
+	/**
+	 * Helper to extract EXIF date and original filename from a TFile.
+	 * @param file - The TFile to extract from.
+	 * @returns An object: { dateTaken: string, originalFileName: string }
+	 */
+	async extractExifDateAndFilename(file: TFile): Promise<{ dateTaken: string, originalFileName: string }> {
+		let dateTaken = '';
+		let originalFileName = '';
+		try {
+			const arrayBuffer = await this.app.vault.readBinary(file);
+			const headerBytes = 64 * 1024; // 64KB should be enough for EXIF data
+			const slicedBuffer = arrayBuffer.byteLength > headerBytes ? arrayBuffer.slice(0, headerBytes) : arrayBuffer;
+			const binary = String.fromCharCode(...new Uint8Array(slicedBuffer));
+			const base64 = window.btoa(binary);
+			const dataUrl = `data:image/jpeg;base64,${base64}`;
+			const exifObj = piexif.load(dataUrl);
+			const exifDate = exifObj?.Exif?.[piexif.ExifIFD.DateTimeOriginal];
+			if (exifDate) dateTaken = exifDate.split(' ')[0]?.replace(/:/g, '-');
+
+			// Try to extract the original file name from UserComment
+			const userCommentTag = piexif.ExifIFD.UserComment;
+			const userComment = exifObj?.Exif?.[userCommentTag];
+			let commentText = "";
+			if (typeof userComment === "string" && userComment.startsWith("ASCII\0\0\0")) {
+				commentText = userComment.substring(8);
+			} else if (typeof userComment === "string") {
+				commentText = userComment;
+			}
+			const match = commentText.match(/^OriginalFilename:\s*(.+)$/m);
+			if (match) {
+				originalFileName = match[1].trim();
+			}
+		} catch (exifErr) {
+			console.warn('Could not extract EXIF date or original filename:', exifErr);
+		}
+		return { dateTaken, originalFileName };
 	}
 
 	/*-----------------------------------------------------------------*/
