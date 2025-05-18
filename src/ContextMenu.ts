@@ -20,7 +20,7 @@ import { VariableProcessor, VariableContext } from './VariableProcessor';
 import { ImageAnnotationModal } from './ImageAnnotation';
 import { Crop } from './Crop';
 import { ProcessSingleImageModal } from "./ProcessSingleImageModal";
-import piexif from "piexifjs";
+import { ExifMetadataManager } from './ExifMetadataManager';
 
 interface ImageMatch {
 	lineNumber: number;
@@ -29,6 +29,7 @@ interface ImageMatch {
 }
 
 export class ContextMenu extends Component {
+	private exifMetadataManager: ExifMetadataManager;
 	private contextMenuRegistered = false;
 	private currentMenu: Menu | null = null;
 
@@ -48,6 +49,7 @@ export class ContextMenu extends Component {
 	) {
 		super();
 		this.registerContextMenuListener();
+		this.exifMetadataManager = new ExifMetadataManager(app);
 	}
 
 	/*-----------------------------------------------------------------*/
@@ -1601,7 +1603,7 @@ export class ContextMenu extends Component {
 				});
 		});
 
-		this.extractExifDateAndFilename(file)
+		this.exifMetadataManager.extractExifDateAndFilename(file)
 			.then(metadata => {
 				// Enable the menu item if there is metadata that allows for searching in Google Photos
 				if (metadata.dateTaken) {
@@ -1616,47 +1618,9 @@ export class ContextMenu extends Component {
 	 * @param file - The TFile whose file needs to be searched.
 	 */
 	async openInGooglePhotos(file: TFile) {
-		const { dateTaken, originalFileName } = await this.extractExifDateAndFilename(file);
+		const { dateTaken, originalFileName } = await this.exifMetadataManager.extractExifDateAndFilename(file);
 		const searchQuery = originalFileName ? `"${originalFileName}" ${dateTaken}` : dateTaken;
 		window.open(`https://photos.google.com/search/${encodeURIComponent(searchQuery)}`, '_blank');
-	}
-
-	/**
-	 * Helper to extract EXIF date and original filename from a TFile.
-	 * @param file - The TFile to extract from.
-	 * @returns An object: { dateTaken: string, originalFileName: string }
-	 */
-	async extractExifDateAndFilename(file: TFile): Promise<{ dateTaken: string, originalFileName: string }> {
-		let dateTaken = '';
-		let originalFileName = '';
-		try {
-			const arrayBuffer = await this.app.vault.readBinary(file);
-			const headerBytes = 64 * 1024; // 64KB should be enough for EXIF data
-			const slicedBuffer = arrayBuffer.byteLength > headerBytes ? arrayBuffer.slice(0, headerBytes) : arrayBuffer;
-			const binary = String.fromCharCode(...new Uint8Array(slicedBuffer));
-			const base64 = window.btoa(binary);
-			const dataUrl = `data:image/jpeg;base64,${base64}`;
-			const exifObj = piexif.load(dataUrl);
-			const exifDate = exifObj?.Exif?.[piexif.ExifIFD.DateTimeOriginal];
-			if (exifDate) dateTaken = exifDate.split(' ')[0]?.replace(/:/g, '-');
-
-			// Try to extract the original file name from UserComment
-			const userCommentTag = piexif.ExifIFD.UserComment;
-			const userComment = exifObj?.Exif?.[userCommentTag];
-			let commentText = "";
-			if (typeof userComment === "string" && userComment.startsWith("ASCII\0\0\0")) {
-				commentText = userComment.substring(8);
-			} else if (typeof userComment === "string") {
-				commentText = userComment;
-			}
-			const match = commentText.match(/^OriginalFilename:\s*(.+)$/m);
-			if (match) {
-				originalFileName = match[1].trim();
-			}
-		} catch (exifErr) {
-			console.warn('Could not extract EXIF date or original filename:', exifErr);
-		}
-		return { dateTaken, originalFileName };
 	}
 
 	/*-----------------------------------------------------------------*/

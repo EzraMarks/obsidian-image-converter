@@ -9,6 +9,7 @@ import * as piexif from "piexifjs"; // Import piexif library
 import * as fs from 'fs/promises'; // Import Node.js file system functions (promises version)
 import * as os from 'os';          // Import Node.js os module
 import * as path from 'path';    // Import Node.js path module
+import { ExifMetadataManager } from "./ExifMetadataManager";
 
 // Import types
 export type ResizeMode = 'None' | 'Fit' | 'Fill' | 'LongestEdge' | 'ShortestEdge' | 'Width' | 'Height';
@@ -79,48 +80,14 @@ export class ImageProcessor {
 
         if (format === "JPEG") {
             // Extract metadata from the original file
-            const metadata: piexif.ExifDict | undefined = await this.extractMetadata(file);
+            const metadata: piexif.ExifDict | undefined = await ImageProcessor.extractMetadata(file);
 
             // Remove rotation property (Orientation tag in 0th IFD, tag 274)
             if (metadata && metadata["0th"] && metadata["0th"][piexif.ImageIFD.Orientation]) {
                 delete metadata["0th"][piexif.ImageIFD.Orientation];
             }
             
-            // Add metadata encoding the original file name of this image, which is useful for
-            // later identifying this image in a system like Google Photos.
-            const hasOriginalMetadata = metadata?.Exif?.[piexif.ExifIFD.DateTimeOriginal]; // proxy for whether the file has its original metadata
-            if (hasOriginalMetadata && fileName) {
-                // piexif.ExifIFD.UserComment is the tag for UserComment (37510)
-                const userCommentTag = piexif.ExifIFD.UserComment;
-                const exif = metadata?.["Exif"] ?? {};
-
-                // Get existing UserComment (may be undefined)
-                const existingComment = exif[userCommentTag];
-
-                // Decode UserComment if it exists and starts with ASCII prefix
-                let commentText = "";
-                if (typeof existingComment === "string" && existingComment.startsWith("ASCII\0\0\0")) {
-                    commentText = existingComment.substring(8); // Remove prefix
-                } else if (typeof existingComment === "string") {
-                    commentText = existingComment;
-                }
-
-                // Check if any line starts with "OriginalFilename"
-                const hasOriginalFilename = commentText
-                    .split(/\r?\n/)
-                    .some(line => line.trim().startsWith("OriginalFilename"));
-
-                if (!hasOriginalFilename) {
-                    // Add new line with "OriginalFilename: filename"
-                    commentText = commentText
-                        ? commentText + "\nOriginalFilename: " + fileName
-                        : "OriginalFilename: " + fileName;
-                    // Per EXIF spec, UserComment should start with a charset prefix (here: ASCII)
-                    const prefix = "ASCII\0\0\0";
-                    exif[userCommentTag] = prefix + commentText;
-                    metadata["Exif"] = exif;
-                }
-            }
+            metadata && fileName && ExifMetadataManager.encodeOriginalFilename(fileName, metadata);
 
             const stringifiedMetadata = metadata && Object.keys(metadata).length > 0 ? piexif.dump(metadata) : "";
 
@@ -1710,7 +1677,7 @@ export class ImageProcessor {
      * @param file - The image file as a Blob.
      * @returns A Promise that resolves to the extracted metadata.
      */
-    private async extractMetadata(file: Blob): Promise<piexif.ExifDict | undefined> {
+    static async extractMetadata(file: Blob): Promise<piexif.ExifDict | undefined> {
         const reader = new FileReader();
         const fileDataUrl = await new Promise<string>((resolve, reject) => {
             reader.onload = (e) => resolve(e.target?.result as string);
