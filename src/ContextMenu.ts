@@ -174,12 +174,8 @@ export class ContextMenu extends Component {
 			this.addShowInSystemExplorerMenuItem(menu, img)
 		}
 		
-		const imagePath = this.folderAndFilenameManagement.getImagePath(img);
-		const file = imagePath && this.app.vault.getAbstractFileByPath(imagePath);
-
-		if (file instanceof TFile) {
-			this.addOpenInGooglePhotosMenuItem(menu, file);
-		}
+		const file = this.findFileForImg(img);
+		file && this.addOpenInGooglePhotosMenuItem(menu, file);
 
 		menu.addSeparator();
 		this.addDeleteImageAndLinkMenuItem(menu, event);
@@ -187,6 +183,42 @@ export class ContextMenu extends Component {
 		return true;
 	}
 
+	/**
+	 * Finds the file associated with the image.
+	 * @param img - The HTMLImageElement that was right-clicked.
+	 * @returns The TFile object if found, otherwise undefined.
+	 */
+	findFileForImg(img: HTMLImageElement): TFile | undefined {
+		// Get the filename from the src attribute
+		const srcAttribute = img.getAttribute('src');
+		if (!srcAttribute) {
+			new Notice('No source attribute found');
+			return;
+		}
+
+		// Extract just the filename
+		const filename = decodeURIComponent(srcAttribute.split('?')[0].split('/').pop() || '');
+		// console.log('Extracted filename:', filename);
+
+		// Search for the file in the vault
+		const matchingFiles = this.app.vault.getFiles().filter(file =>
+			file.name === filename
+		);
+
+		if (matchingFiles.length === 0) {
+			console.error('No matching files found for:', filename);
+			new Notice(`Unable to find image: ${filename}`);
+			return;
+		}
+
+		if (matchingFiles.length > 1) {
+			console.error('Multiple matching files found for:', filename);
+			new Notice(`Multiple matching files found for: ${filename}`);
+			return;
+		}
+		
+		return matchingFiles[0];
+	}
 
 	/*-----------------------------------------------------------------*/
 	/*                        CAPTION INPUT                            */
